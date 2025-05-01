@@ -4,7 +4,7 @@ name: Generate Supabase Reports
 on:
   schedule:
     # 00:30 Europe/Berlin = 22:30 UTC (am Vortag)
-    - cron: '30 22 * * *'
+    - cron: '12 3 * * *'
   workflow_dispatch:
 
 env:
