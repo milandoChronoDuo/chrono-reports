@@ -1,0 +1,38 @@
+name: Generate Supabase Reports
+
+on:
+  schedule:
+    - cron: '30 22 * * *'   # 22:30 UTC = 00:30 Europe/Berlin
+  workflow_dispatch:
+
+env:
+  TZ: Europe/Berlin
+
+jobs:
+  reports:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        # Beispiel: bei CHUNK_SIZE=20 und 100 Kunden → chunk_index: 0–4
+        chunk_index: [0, 1, 2, 3, 4]
+    max-parallel: 5
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - run: npm ci
+
+      - name: Run chunk ${{ matrix.chunk_index }}
+        run: |
+          echo "🎯 Chunk $CHUNK_INDEX von ${#matrix.chunk_index[@]}"
+          node generate-reports.js
+        env:
+          SUPABASE_URL:             ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CHUNK_INDEX:              ${{ matrix.chunk_index }}
+          CHUNK_SIZE:               20
