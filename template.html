@@ -10,7 +10,7 @@
   <style>
     body {
       font-family: 'Montserrat', sans-serif;
-      margin:20px;
+      margin: 20px;
     }
 
     .header {
@@ -21,11 +21,11 @@
     }
 
     .header img {
-      width:250px;
+      width: 250px;
       margin-bottom: 30px;
     }
 
-    .title-bar, .subtitle-bar {
+    .title-bar {
       background: #0286C1;
       color: #fff;
       border-radius: 999px;
@@ -33,43 +33,51 @@
       display: inline-block;
     }
 
+    /* Neu: volle Breite und zentrierter Text */
     .subtitle-bar {
+      background: #0286C1;
+      color: #fff;
+      border-radius: 999px;
+      padding: 8px 16px;
+      display: block;
+      width: 100%;
+      text-align: center;
       margin-top: 15px;
       font-size: 0.9em;
       font-weight: 400;
     }
 
     table {
-      width:100%;
-      border-collapse:collapse;
-      margin-top:15px;
-      font-size:12px;
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+      font-size: 12px;
     }
     th, td {
-      border:1px solid #0286C1;
-      padding:6px;
-      text-align:left;
+      border: 1px solid #0286C1;
+      padding: 6px;
+      text-align: left;
     }
     th {
-      background:#B8CCE4;
-      font-weight:700;
+      background: #B8CCE4;
+      font-weight: 700;
     }
     tbody tr:nth-child(even) {
-      background:#B8CCE4;
+      background: #B8CCE4;
     }
     tfoot td {
-      background:#0286C1;
-      color:#fff;
-      font-weight:700;
-      text-align:center;
-      border:1px solid #0286C1;
+      background: #0286C1;
+      color: #fff;
+      font-weight: 700;
+      text-align: center;
+      border: 1px solid #0286C1;
     }
 
     .footer {
-      margin-top:20px;
-      font-size:10px;
-      color:#555;
-      text-align:right;
+      margin-top: 20px;
+      font-size: 10px;
+      color: #555;
+      text-align: right;
     }
   </style>
 </head>
@@ -83,6 +91,8 @@
 
     <div class="subtitle-bar">
       {{firma_name}} – Zeiten für {{arbeiter.name}}
+      &nbsp;|&nbsp; ID: {{arbeiter.id_number}}
+      &nbsp;|&nbsp; Urlaubskonto: {{arbeiter.urlaubskonto}} Std.
     </div>
   </div>
 
