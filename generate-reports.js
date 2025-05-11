@@ -14,17 +14,23 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// 2) Interval-Parsing (HH:MM:SS → ms)
+// 2) Interval‐Parsing und Formattierung
 function parseIntervalToMs(interval) {
   if (typeof interval !== 'string') return 0;
-  const [h='0', m='0', s='0'] = interval.split(':');
-  return (Number(h)*3600 + Number(m)*60 + Number(s)) * 1000;
+  const neg = interval.trim().startsWith('-');
+  const [h='0', m='0', s='0'] = interval.replace(/^-/, '').split(':');
+  const totalMs = (Number(h) * 3600 + Number(m) * 60 + Number(s)) * 1000;
+  return neg ? -totalMs : totalMs;
 }
-function msToHHMM(ms) {
-  const totalSec = Math.floor(ms/1000);
-  const hh = Math.floor(totalSec/3600);
-  const mm = Math.floor((totalSec%3600)/60);
-  return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+
+function formatSigned(ms) {
+  const neg = ms < 0;
+  const abs = Math.abs(ms);
+  const totalSec = Math.floor(abs / 1000);
+  const hh = Math.floor(totalSec / 3600);
+  const mm = Math.floor((totalSec % 3600) / 60);
+  const str = `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+  return neg ? `-${str}` : str;
 }
 
 // 3) Template & Logo laden
@@ -48,41 +54,40 @@ async function run() {
   const today      = dayjs();
   const dayOfMonth = today.date();
 
-  // 4a) Alle Kunden
+  // 4a) Alle Kunden abrufen
   const { data: allKunden, error: kErr } = await supabase
     .schema('management')
     .from('kunden')
     .select('id, firma_slug, firmenname, pdf_versand_tag');
   if (kErr) throw kErr;
 
-  // 4b) Nur die mit Versand-Tag = heute
+  // 4b) Nach heutigem pdf_versand_tag filtern
   const kunden = allKunden.filter(k => k.pdf_versand_tag === dayOfMonth);
   if (!kunden.length) {
     console.log('Keine Reports heute');
     return;
   }
 
-  // 4c) Pro Kunde
+  // 4c) Für jeden Kunden
   for (const k of kunden) {
-    const schema     = k.firma_slug;
-    const startDate  = today.subtract(1, 'month').date(dayOfMonth).format('YYYY-MM-DD');
-    const endDate    = today.subtract(1, 'day').format('YYYY-MM-DD');
-    const monatName  = dayjs(endDate).format('MMMM').toLowerCase();
-    const jahr       = dayjs(endDate).format('YYYY');
+    const schema    = k.firma_slug;
+    const startDate = today.subtract(1, 'month').date(dayOfMonth).format('YYYY-MM-DD');
+    const endDate   = today.subtract(1, 'day').format('YYYY-MM-DD');
+    const monatName = dayjs(startDate).format('MMMM').toLowerCase();
+    const jahr      = dayjs(startDate).format('YYYY');
 
-    // RPC: Arbeiter mit id_number und urlaubskonto
+    // RPC: Arbeiter mit id, name, id_number, urlaubskonto, etc.
     const { data: workers, error: wErr } = await supabase
       .schema('management')
       .rpc('get_arbeiter', { schema_name: schema });
-    // get_arbeiter sollte id, name, id_number, urlaubskonto, etc. zurückliefern
     if (wErr || !workers?.length) {
       console.error('   ✖ get_arbeiter fehlgeschlagen oder leer');
       continue;
     }
 
-    // 4d) Pro Arbeiter
+    // 4d) Für jeden Arbeiter
     for (const a of workers) {
-      // RPC: Zeiteinträge
+      // RPC: Zeiten
       const { data: zeiten, error: tErr } = await supabase
         .schema('management')
         .rpc('get_zeiten', {
@@ -91,12 +96,12 @@ async function run() {
           start_date:  startDate,
           end_date:    endDate
         });
-      if (tErr) {
+      if (tErr || !zeiten) {
         console.error('     ✖ get_zeiten fehlgeschlagen');
         continue;
       }
 
-      // 4e) Zeilen-HTML bauen
+      // 4e) Zeilen-HTML + Summen
       let gesNettoMs = 0, gesUberMs = 0;
       const zeilenHtml = zeiten.map(z => {
         const nettoMs = parseIntervalToMs(z.nettoarbeitszeit);
@@ -110,26 +115,22 @@ async function run() {
             <td>${z.status}</td>
             <td>${z.arbeitsbeginn ? dayjs(z.arbeitsbeginn).format('HH:mm') : ''}</td>
             <td>${z.feierabend    ? dayjs(z.feierabend).format('HH:mm')   : ''}</td>
-            <td>${msToHHMM(pauseMs)} Std.</td>
-            <td>${msToHHMM(nettoMs)} Std.</td>
-            <td>${msToHHMM(uberMs)} Std.</td>
+            <td>${formatSigned(pauseMs)} Std.</td>
+            <td>${formatSigned(nettoMs)} Std.</td>
+            <td>${formatSigned(uberMs)} Std.</td>
           </tr>`;
       }).join('');
 
-      // 4f) Template-Kontext
+      // 4f) Template füllen
       const html = template({
         logo:                    logoDataUri,
         Monat:                   monatName.charAt(0).toUpperCase() + monatName.slice(1),
         Jahr:                    jahr,
         firma_name:              k.firmenname,
-        arbeiter: {
-          name:         a.name,
-          id_number:    a.id_number,    // neu
-          urlaubskonto: a.urlaubskonto  // neu
-        },
+        arbeiter:                { name: a.name, id_number: a.id_number, urlaubskonto: a.urlaubskonto },
         zeilen:                  zeilenHtml,
-        gesamt_nettoarbeitszeit: msToHHMM(gesNettoMs) + ' Std.',
-        gesamt_ueberstunden:     msToHHMM(gesUberMs)  + ' Std.',
+        gesamt_nettoarbeitszeit: formatSigned(gesNettoMs) + ' Std.',
+        gesamt_ueberstunden:     formatSigned(gesUberMs)  + ' Std.',
         erstellungsdatum:        today.format('DD.MM.YYYY')
       });
 
@@ -151,9 +152,9 @@ async function run() {
           upsert: true
         });
       if (upErr) {
-        console.error(`Upload ${uploadName} fehlgeschlagen:`, upErr.message);
+        console.error(`     ✖ Upload ${uploadName}:`, upErr.message);
       } else {
-        console.log(`✔ Hochgeladen: ${uploadName}`);
+        console.log(`     ✔ Hochgeladen: ${uploadName}`);
       }
     }
 
@@ -165,9 +166,9 @@ async function run() {
         new_last:  dayOfMonth
       });
     if (lvErr) {
-      console.error(`lastversand für ${schema} konnte nicht gesetzt werden:`, lvErr.message);
+      console.error(`   ✖ lastversand für ${schema} konnte nicht gesetzt werden:`, lvErr.message);
     } else {
-      console.log(`→ lastversand für ${schema} = ${dayOfMonth}`);
+      console.log(`   → lastversand für ${schema} = ${dayOfMonth}`);
     }
   }
 }
