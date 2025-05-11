@@ -14,6 +14,7 @@
     "dayjs": "^1.11.13",
     "dotenv": "^16.5.0",
     "handlebars": "^4.7.8",
-    "puppeteer": "^24.7.2"
+    "puppeteer": "^24.7.2",
+    "@sendgrid/mail": "^8.1.5"
   }
 }
