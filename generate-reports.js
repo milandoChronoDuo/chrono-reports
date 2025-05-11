@@ -14,7 +14,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// 2) Interval‐Parsing (HH:MM:SS → ms)
+// 2) Interval-Parsing (HH:MM:SS → ms)
 function parseIntervalToMs(interval) {
   if (typeof interval !== 'string') return 0;
   const [h='0', m='0', s='0'] = interval.split(':');
@@ -48,14 +48,14 @@ async function run() {
   const today      = dayjs();
   const dayOfMonth = today.date();
 
-  // 4a) Alle Kunden aus management.kunden
+  // 4a) Alle Kunden
   const { data: allKunden, error: kErr } = await supabase
     .schema('management')
     .from('kunden')
     .select('id, firma_slug, firmenname, pdf_versand_tag');
   if (kErr) throw kErr;
 
-  // 4b) Filtern nach heutigem Versand-Tag
+  // 4b) Nur die mit Versand-Tag = heute
   const kunden = allKunden.filter(k => k.pdf_versand_tag === dayOfMonth);
   if (!kunden.length) {
     console.log('Keine Reports heute');
@@ -67,19 +67,23 @@ async function run() {
     const schema     = k.firma_slug;
     const startDate  = today.subtract(1, 'month').date(dayOfMonth).format('YYYY-MM-DD');
     const endDate    = today.subtract(1, 'day').format('YYYY-MM-DD');
-    const monatName  = dayjs(endDate).format('MMMM').toLowerCase();
-    const jahr       = dayjs(endDate).format('YYYY');
+    const monatName  = dayjs(startDate).format('MMMM').toLowerCase();
+    const jahr       = dayjs(startDate).format('YYYY');
 
-    // RPC: Alle Arbeiter
-    const { data: workers } = await supabase
+    // RPC: Arbeiter mit id_number und urlaubskonto
+    const { data: workers, error: wErr } = await supabase
       .schema('management')
       .rpc('get_arbeiter', { schema_name: schema });
-    if (!workers?.length) continue;
+    // get_arbeiter sollte id, name, id_number, urlaubskonto, etc. zurückliefern
+    if (wErr || !workers?.length) {
+      console.error('   ✖ get_arbeiter fehlgeschlagen oder leer');
+      continue;
+    }
 
     // 4d) Pro Arbeiter
     for (const a of workers) {
       // RPC: Zeiteinträge
-      const { data: zeiten } = await supabase
+      const { data: zeiten, error: tErr } = await supabase
         .schema('management')
         .rpc('get_zeiten', {
           schema_name: schema,
@@ -87,9 +91,12 @@ async function run() {
           start_date:  startDate,
           end_date:    endDate
         });
-      if (!zeiten) continue;
+      if (tErr) {
+        console.error('     ✖ get_zeiten fehlgeschlagen');
+        continue;
+      }
 
-      // 4e) Zeilen‐HTML bauen
+      // 4e) Zeilen-HTML bauen
       let gesNettoMs = 0, gesUberMs = 0;
       const zeilenHtml = zeiten.map(z => {
         const nettoMs = parseIntervalToMs(z.nettoarbeitszeit);
@@ -109,13 +116,17 @@ async function run() {
           </tr>`;
       }).join('');
 
-      // 4f) Template‐Kontext
+      // 4f) Template-Kontext
       const html = template({
         logo:                    logoDataUri,
         Monat:                   monatName.charAt(0).toUpperCase() + monatName.slice(1),
         Jahr:                    jahr,
         firma_name:              k.firmenname,
-        arbeiter:                { name: a.name },
+        arbeiter: {
+          name:         a.name,
+          id_number:    a.id_number,    // neu
+          urlaubskonto: a.urlaubskonto  // neu
+        },
         zeilen:                  zeilenHtml,
         gesamt_nettoarbeitszeit: msToHHMM(gesNettoMs) + ' Std.',
         gesamt_ueberstunden:     msToHHMM(gesUberMs)  + ' Std.',
