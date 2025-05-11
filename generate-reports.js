@@ -6,6 +6,7 @@ const path       = require('path');
 const Handlebars = require('handlebars');
 const puppeteer  = require('puppeteer');
 const dayjs      = require('dayjs');
+const sgMail     = require('@sendgrid/mail');
 const { createClient } = require('@supabase/supabase-js');
 
 // 1) Supabase-Client
@@ -14,14 +15,15 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+// 1a) SendGrid einrichten
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+
 // 2) Interval‐Parsing und Runden auf Minuten
 function parseIntervalToMs(interval) {
   if (typeof interval !== 'string') return 0;
   const neg = interval.trim().startsWith('-');
   const [h='0', m='0', s='0'] = interval.replace(/^-/, '').split(':');
-  // Gesamtsekunden
   const totalSec = Number(h)*3600 + Number(m)*60 + Number(s);
-  // Auf nächste Minute runden:
   const totalMin = Math.round(totalSec / 60);
   const roundedMs = totalMin * 60 * 1000;
   return neg ? -roundedMs : roundedMs;
@@ -30,7 +32,6 @@ function parseIntervalToMs(interval) {
 function formatSigned(ms) {
   const neg = ms < 0;
   const absMs = Math.abs(ms);
-  // Ganzzahl Minuten
   const totalMin = Math.floor(absMs / 60000);
   const hh = Math.floor(totalMin / 60);
   const mm = totalMin % 60;
@@ -63,10 +64,10 @@ async function run() {
   const { data: allKunden, error: kErr } = await supabase
     .schema('management')
     .from('kunden')
-    .select('id, firma_slug, firmenname, pdf_versand_tag');
+    .select('id, firma_slug, firmenname, kontakt_email, pdf_versand_tag');
   if (kErr) throw kErr;
 
-  // 4b) Nach heutigem Versand-Tag filtern
+  // 4b) Nach heutigem pdf_versand_tag filtern
   const kunden = allKunden.filter(k => k.pdf_versand_tag === dayOfMonth);
   if (!kunden.length) {
     console.log('Keine Reports heute');
@@ -81,7 +82,7 @@ async function run() {
     const monatName = dayjs(startDate).format('MMMM').toLowerCase();
     const jahr      = dayjs(startDate).format('YYYY');
 
-    // RPC: Arbeiter inklusive id_number, urlaubskonto
+    // RPC: Arbeiter
     const { data: workers, error: wErr } = await supabase
       .schema('management')
       .rpc('get_arbeiter', { schema_name: schema });
@@ -106,7 +107,7 @@ async function run() {
         continue;
       }
 
-      // 4e) Zeilen-HTML + Summen (gerundet)
+      // 4e) Zeilen-HTML + Summen
       let gesNettoMs = 0, gesUberMs = 0;
       const zeilenHtml = zeiten.map(z => {
         const nettoMs = parseIntervalToMs(z.nettoarbeitszeit);
@@ -175,6 +176,16 @@ async function run() {
     } else {
       console.log(`   → lastversand für ${schema} = ${dayOfMonth}`);
     }
+
+    // 4j) Abschließende E-Mail an die Kontaktadresse
+    await sgMail.send({
+      to:      k.kontakt_email,
+      from:    process.env.SENDGRID_SENDER,
+      subject: `Monatsberichte ${monatName.charAt(0).toUpperCase() + monatName.slice(1)} ${jahr} verarbeitet`,
+      html:   `<p>Hallo ${k.firmenname},</p>
+               <p>Die monatlichen Berichte wurden erfolgreich verarbeitet und stehen nun im Dashboard zum Download bereit.</p>`
+    });
+    console.log(`   ✔ Abschluss-Mail an ${k.kontakt_email}`);
   }
 }
 
