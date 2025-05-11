@@ -14,21 +14,26 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// 2) Interval‐Parsing und Formattierung
+// 2) Interval‐Parsing und Runden auf Minuten
 function parseIntervalToMs(interval) {
   if (typeof interval !== 'string') return 0;
   const neg = interval.trim().startsWith('-');
   const [h='0', m='0', s='0'] = interval.replace(/^-/, '').split(':');
-  const totalMs = (Number(h) * 3600 + Number(m) * 60 + Number(s)) * 1000;
-  return neg ? -totalMs : totalMs;
+  // Gesamtsekunden
+  const totalSec = Number(h)*3600 + Number(m)*60 + Number(s);
+  // Auf nächste Minute runden:
+  const totalMin = Math.round(totalSec / 60);
+  const roundedMs = totalMin * 60 * 1000;
+  return neg ? -roundedMs : roundedMs;
 }
 
 function formatSigned(ms) {
   const neg = ms < 0;
-  const abs = Math.abs(ms);
-  const totalSec = Math.floor(abs / 1000);
-  const hh = Math.floor(totalSec / 3600);
-  const mm = Math.floor((totalSec % 3600) / 60);
+  const absMs = Math.abs(ms);
+  // Ganzzahl Minuten
+  const totalMin = Math.floor(absMs / 60000);
+  const hh = Math.floor(totalMin / 60);
+  const mm = totalMin % 60;
   const str = `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
   return neg ? `-${str}` : str;
 }
@@ -61,7 +66,7 @@ async function run() {
     .select('id, firma_slug, firmenname, pdf_versand_tag');
   if (kErr) throw kErr;
 
-  // 4b) Nach heutigem pdf_versand_tag filtern
+  // 4b) Nach heutigem Versand-Tag filtern
   const kunden = allKunden.filter(k => k.pdf_versand_tag === dayOfMonth);
   if (!kunden.length) {
     console.log('Keine Reports heute');
@@ -76,7 +81,7 @@ async function run() {
     const monatName = dayjs(startDate).format('MMMM').toLowerCase();
     const jahr      = dayjs(startDate).format('YYYY');
 
-    // RPC: Arbeiter mit id, name, id_number, urlaubskonto, etc.
+    // RPC: Arbeiter inklusive id_number, urlaubskonto
     const { data: workers, error: wErr } = await supabase
       .schema('management')
       .rpc('get_arbeiter', { schema_name: schema });
@@ -85,9 +90,9 @@ async function run() {
       continue;
     }
 
-    // 4d) Für jeden Arbeiter
+    // 4d) Pro Arbeiter
     for (const a of workers) {
-      // RPC: Zeiten
+      // RPC: Zeiteinträge
       const { data: zeiten, error: tErr } = await supabase
         .schema('management')
         .rpc('get_zeiten', {
@@ -101,7 +106,7 @@ async function run() {
         continue;
       }
 
-      // 4e) Zeilen-HTML + Summen
+      // 4e) Zeilen-HTML + Summen (gerundet)
       let gesNettoMs = 0, gesUberMs = 0;
       const zeilenHtml = zeiten.map(z => {
         const nettoMs = parseIntervalToMs(z.nettoarbeitszeit);
