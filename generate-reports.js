@@ -67,8 +67,8 @@ async function run() {
     const schema     = k.firma_slug;
     const startDate  = today.subtract(1, 'month').date(dayOfMonth).format('YYYY-MM-DD');
     const endDate    = today.subtract(1, 'day').format('YYYY-MM-DD');
-    const monatName  = dayjs(startDate).format('MMMM').toLowerCase();
-    const jahr       = dayjs(startDate).format('YYYY');
+    const monatName  = dayjs(endDate).format('MMMM').toLowerCase();
+    const jahr       = dayjs(endDate).format('YYYY');
 
     // RPC: Alle Arbeiter
     const { data: workers } = await supabase
