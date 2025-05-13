@@ -8,29 +8,28 @@ const puppeteer  = require('puppeteer');
 const dayjs      = require('dayjs');
 const { createClient } = require('@supabase/supabase-js');
 
+// 0) Chunk-Config über ENV
+const CHUNK_SIZE  = parseInt(process.env.CHUNK_SIZE, 10)  || Number.MAX_SAFE_INTEGER;
+const CHUNK_INDEX = parseInt(process.env.CHUNK_INDEX, 10) || 0;
+
 // 1) Supabase-Client
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// 2) Interval‐Parsing und Runden auf Minuten
+// 2) Interval-Parsing und Runden auf Minuten
 function parseIntervalToMs(interval) {
   if (typeof interval !== 'string') return 0;
   const neg = interval.trim().startsWith('-');
   const [h='0', m='0', s='0'] = interval.replace(/^-/, '').split(':');
-  // Gesamtsekunden
   const totalSec = Number(h)*3600 + Number(m)*60 + Number(s);
-  // Auf nächste Minute runden:
   const totalMin = Math.round(totalSec / 60);
-  const roundedMs = totalMin * 60 * 1000;
-  return neg ? -roundedMs : roundedMs;
+  return neg ? -totalMin * 60 * 1000 : totalMin * 60 * 1000;
 }
-
 function formatSigned(ms) {
   const neg = ms < 0;
   const absMs = Math.abs(ms);
-  // Ganzzahl Minuten
   const totalMin = Math.floor(absMs / 60000);
   const hh = Math.floor(totalMin / 60);
   const mm = totalMin % 60;
@@ -66,22 +65,33 @@ async function run() {
     .select('id, firma_slug, firmenname, pdf_versand_tag');
   if (kErr) throw kErr;
 
-  // 4b) Nach heutigem Versand-Tag filtern
-  const kunden = allKunden.filter(k => k.pdf_versand_tag === dayOfMonth);
-  if (!kunden.length) {
-    console.log('Keine Reports heute');
+  // 4b) Nach heutigem pdf_versand_tag filtern
+  const due = allKunden.filter(k => k.pdf_versand_tag === dayOfMonth);
+
+  if (!due.length) {
+    console.log('→ Keine Reports heute.');
     return;
   }
 
-  // 4c) Für jeden Kunden
-  for (const k of kunden) {
+  // 4c) Chunking: slice den passenden Abschnitt
+  const start = CHUNK_INDEX * CHUNK_SIZE;
+  const slice = due.slice(start, start + CHUNK_SIZE);
+  if (!slice.length) {
+    console.log(`→ Chunk ${CHUNK_INDEX} ist leer (start=${start}, size=${CHUNK_SIZE}).`);
+    return;
+  }
+
+  // 4d) Pro Kunde im Chunk
+  for (const k of slice) {
     const schema    = k.firma_slug;
     const startDate = today.subtract(1, 'month').date(dayOfMonth).format('YYYY-MM-DD');
     const endDate   = today.subtract(1, 'day').format('YYYY-MM-DD');
     const monatName = dayjs(startDate).format('MMMM').toLowerCase();
     const jahr      = dayjs(startDate).format('YYYY');
 
-    // RPC: Arbeiter inklusive id_number, urlaubskonto
+    console.log(`\n→ [Chunk ${CHUNK_INDEX}] Kunde: ${schema} (Bericht ${monatName.charAt(0).toUpperCase()+monatName.slice(1)} ${jahr})`);
+
+    // RPC: Arbeiter
     const { data: workers, error: wErr } = await supabase
       .schema('management')
       .rpc('get_arbeiter', { schema_name: schema });
@@ -90,7 +100,7 @@ async function run() {
       continue;
     }
 
-    // 4d) Pro Arbeiter
+    // 4e) Pro Arbeiter PDF bauen & hochladen
     for (const a of workers) {
       // RPC: Zeiteinträge
       const { data: zeiten, error: tErr } = await supabase
@@ -106,7 +116,7 @@ async function run() {
         continue;
       }
 
-      // 4e) Zeilen-HTML + Summen (gerundet)
+      // Zeilen-HTML + Summen runden
       let gesNettoMs = 0, gesUberMs = 0;
       const zeilenHtml = zeiten.map(z => {
         const nettoMs = parseIntervalToMs(z.nettoarbeitszeit);
@@ -126,27 +136,27 @@ async function run() {
           </tr>`;
       }).join('');
 
-      // 4f) Template füllen
+      // Template füllen
       const html = template({
         logo:                    logoDataUri,
         Monat:                   monatName.charAt(0).toUpperCase() + monatName.slice(1),
         Jahr:                    jahr,
         firma_name:              k.firmenname,
-        arbeiter:                { name: a.name, id_number: a.id_number, urlaubskonto: a.urlaubskonto },
+        arbeiter:                { name: a.name },
         zeilen:                  zeilenHtml,
         gesamt_nettoarbeitszeit: formatSigned(gesNettoMs) + ' Std.',
         gesamt_ueberstunden:     formatSigned(gesUberMs)  + ' Std.',
         erstellungsdatum:        today.format('DD.MM.YYYY')
       });
 
-      // 4g) PDF generieren
+      // PDF generieren
       const browser = await puppeteer.launch({ args:['--no-sandbox'] });
       const page    = await browser.newPage();
       await page.setContent(html, { waitUntil:'networkidle0' });
       const pdfBuffer = await page.pdf({ format:'A4', printBackground:true });
       await browser.close();
 
-      // 4h) Upload direkt im Bucket
+      // Upload ohne Unterordner
       const safeName   = a.name.replace(/ /g,'_');
       const uploadName = `${schema}-${safeName}-${monatName}-${jahr}.pdf`;
       const { error: upErr } = await supabase
@@ -163,7 +173,7 @@ async function run() {
       }
     }
 
-    // 4i) lastversand updaten
+    // 4f) lastversand updaten
     const { error: lvErr } = await supabase
       .schema('management')
       .rpc('set_lastversand', {
@@ -176,9 +186,11 @@ async function run() {
       console.log(`   → lastversand für ${schema} = ${dayOfMonth}`);
     }
   }
+
+  console.log('\n✅ generate-reports.js abgeschlossen (Chunk ' + CHUNK_INDEX + ')');
 }
 
 run().catch(err => {
-  console.error('Fehler:', err.message);
+  console.error('❌ Fehler:', err.message);
   process.exit(1);
 });
