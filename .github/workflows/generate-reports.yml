@@ -40,6 +40,6 @@ jobs:
           SUPABASE_URL:             ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           CHUNK_INDEX:              ${{ matrix.chunk_index }}
-          CHUNK_SIZE:               20
+          CHUNK_SIZE:               5
           SENDGRID_API_KEY:        ${{ secrets.SENDGRID_API_KEY }}
           SENDGRID_SENDER:        ${{ secrets.SENDGRID_SENDER }}
