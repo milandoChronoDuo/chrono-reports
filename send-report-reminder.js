@@ -12,7 +12,7 @@ async function main() {
 
   const { data, error } = await supabase
     .from('kunden')
-    .select('firma_slug, kontakt_email, firmenname')
+    .select('firma_slug, kontakt_email, kontakt_name')
     .eq('pdf_versand_tag', today)
     .eq('status', 'aktiv'); // Optional
 
@@ -26,9 +26,9 @@ async function main() {
     if (!kunde.kontakt_email) continue;
     const msg = {
       to: kunde.kontakt_email,
-      from: 'noreply@DEINEDOMAIN.de', // muss mit SendGrid-Settings matchen
+      from: 'info@chrono-duo.de', // muss mit SendGrid-Settings matchen
       subject: 'Ihr Berichtsversand bei ChronoPilot',
-      text: `Hallo ${kunde.firmenname},\n\nHeute werden Ihre Monatsberichte per PDF verschickt. Bei Fragen melden Sie sich gerne.\n\nViele Grüße,\nIhr ChronoPilot Team`
+      text: `Hallo ${kunde.kontakt_name},\n\nHeute werden Ihre Monatsberichte per PDF verschickt. Bei Fragen melden Sie sich gerne.\n\nViele Grüße,\nIhr ChronoPilot Team`
     };
     await sgMail.send(msg);
     console.log(`E-Mail an ${kunde.kontakt_email} gesendet.`);
