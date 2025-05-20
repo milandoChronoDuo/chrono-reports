@@ -14,7 +14,7 @@ async function main() {
     .from('kunden')
     .select('firma_slug, kontakt_email, kontakt_name')
     .eq('pdf_versand_tag', today)
-    .eq('status', 'aktiv'); // Optional
+    .eq('status', 'active'); // Optional
 
   if (error) throw error;
   if (!data || data.length === 0) {
