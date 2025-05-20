@@ -1,15 +1,14 @@
 const sgMail = require('@sendgrid/mail');
-
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
-
 sgMail.setApiKey(SENDGRID_API_KEY);
 
 async function main() {
   const today = new Date().getDate();
-  const url = `${SUPABASE_URL}/rest/v1/kunden?pdf_versand_tag=eq.${today}&status=eq.aktiv&select=firma_slug,kontakt_email,kontakt_name`;
+  console.log("HEUTE ist der Tag:", today);
 
+  const url = `${SUPABASE_URL}/rest/v1/kunden?select=firma_slug,kontakt_email,kontakt_name,pdf_versand_tag,status`;
   const res = await fetch(url, {
     headers: {
       apikey: SUPABASE_SERVICE_ROLE_KEY,
@@ -17,8 +16,15 @@ async function main() {
       'Content-Type': 'application/json'
     }
   });
+
   if (!res.ok) throw new Error(`Fehler beim Laden der Kunden: ${res.statusText}`);
-  const data = await res.json();
+  const allKunden = await res.json();
+
+  // Jetzt im Skript filtern
+  const data = allKunden.filter(
+    k => Number(k.pdf_versand_tag) === today && k.status === "aktiv"
+  );
+  console.log("Gefundene Kunden für Versand:", data);
 
   if (!data.length) {
     console.log('Keine Kunden für den heutigen Versandtag.');
