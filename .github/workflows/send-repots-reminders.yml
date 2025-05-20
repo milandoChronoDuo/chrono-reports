@@ -1,0 +1,29 @@
+name: Send Report Reminder Emails
+
+on:
+  schedule:
+    - cron: '0 8 * * *' # Jeden Tag um 08:00 Uhr UTC
+  workflow_dispatch:
+
+jobs:
+  send-reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install @supabase/supabase-js
+
+      - name: Send emails
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+          # Für Outlook-Alternative: OUTLOOK_USER, OUTLOOK_PASS
+        run: node .github/scripts/send-report-reminder.js
