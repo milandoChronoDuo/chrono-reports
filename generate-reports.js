@@ -7,6 +7,8 @@ const Handlebars = require('handlebars');
 const puppeteer  = require('puppeteer');
 const dayjs      = require('dayjs');
 const { createClient } = require('@supabase/supabase-js');
+const sgMail     = require('@sendgrid/mail');
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 // 0) Chunk-Config über ENV
 const CHUNK_SIZE  = parseInt(process.env.CHUNK_SIZE, 10)  || Number.MAX_SAFE_INTEGER;
@@ -62,11 +64,11 @@ async function run() {
   const { data: allKunden, error: kErr } = await supabase
     .schema('management')
     .from('kunden')
-    .select('id, firma_slug, firmenname, pdf_versand_tag');
+    .select('id, firma_slug, firmenname, kontakt_name, kontakt_email, pdf_versand_tag');
   if (kErr) throw kErr;
 
   // 4b) Nach heutigem pdf_versand_tag filtern
-  const due = allKunden.filter(k => k.pdf_versand_tag === dayOfMonth);
+  const due = allKunden.filter(k => Number(k.pdf_versand_tag) === dayOfMonth);
 
   if (!due.length) {
     console.log('→ Keine Reports heute.');
@@ -173,7 +175,24 @@ async function run() {
       }
     }
 
-    // 4f) lastversand updaten
+    // 4f) E-Mail an den Kunden versenden
+    const empfaenger = k.kontakt_email || process.env.DEFAULT_REPORT_EMAIL;
+    if (empfaenger) {
+      const mail = {
+        to: empfaenger,
+        from: 'info@chrono-duo.de', // muss bei SendGrid verifiziert sein!
+        subject: `ChronoPilot Berichtsversand – ${k.firmenname || k.firma_slug}`,
+        text: `Hallo ${k.kontakt_name || 'Anwender'},\n\nIhr Monatsbericht für ${monatName.charAt(0).toUpperCase()+monatName.slice(1)} ${jahr} wurde soeben bereitgestellt. Die PDFs liegen für Sie im ChronoPilot-System bereit.\n\nViele Grüße\nIhr ChronoPilot Team`,
+      };
+      try {
+        await sgMail.send(mail);
+        console.log(`   ✔ Mail an ${empfaenger} gesendet.`);
+      } catch (mailErr) {
+        console.error(`   ✖ Mail an ${empfaenger} fehlgeschlagen:`, mailErr.message);
+      }
+    }
+
+    // 4g) lastversand updaten
     const { error: lvErr } = await supabase
       .schema('management')
       .rpc('set_lastversand', {
