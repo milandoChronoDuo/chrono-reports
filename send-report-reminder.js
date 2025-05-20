@@ -1,6 +1,4 @@
-const fetch = require('node-fetch');
-const sgMail = require('@sendgrid/mail');
-
+// fetch ist jetzt nativ verfügbar:
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
@@ -30,7 +28,7 @@ async function main() {
     if (!kunde.kontakt_email) continue;
     const msg = {
       to: kunde.kontakt_email,
-      from: 'info@chrono-duo.de', // Absenderadresse
+      from: 'info@chrono-duo.de',
       subject: 'Ihr Berichtsversand bei ChronoPilot',
       text: `Hallo ${kunde.kontakt_name},\n\nheute werden Ihre Monatsberichte per PDF verschickt. Bei Fragen melden Sie sich gerne bei uns.\n\nViele Grüße\nIhr ChronoPilot Team`,
     };
