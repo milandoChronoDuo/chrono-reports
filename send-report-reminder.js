@@ -1,4 +1,5 @@
-// fetch ist jetzt nativ verfügbar:
+const sgMail = require('@sendgrid/mail');
+
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
