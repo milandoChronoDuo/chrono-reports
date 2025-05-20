@@ -26,4 +26,4 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
           # Für Outlook-Alternative: OUTLOOK_USER, OUTLOOK_PASS
-        run: node .github/scripts/send-report-reminder.js
+        run: node send-report-reminder.js
