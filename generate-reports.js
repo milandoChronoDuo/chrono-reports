@@ -182,7 +182,7 @@ async function run() {
         to: empfaenger,
         from: 'info@chrono-duo.de', // muss bei SendGrid verifiziert sein!
         subject: `ChronoPilot Berichtsversand – ${k.firmenname || k.firma_slug}`,
-        text: `Hallo ${k.kontakt_name || 'Anwender'},\n\nIhr Monatsbericht für ${monatName.charAt(0).toUpperCase()+monatName.slice(1)} ${jahr} wurde soeben bereitgestellt. Die PDFs liegen für Sie im ChronoPilot-System bereit.\n\nViele Grüße\nIhr ChronoPilot Team`,
+        text: `Hallo ${k.kontakt_name || 'Anwender'},\n\nIhr Monatsbericht für ${monatName.charAt(0).toUpperCase()+monatName.slice(1)} ${jahr} wurde soeben bereitgestellt. Die PDFs liegen für Sie im ChronoPilot-Adminbereich unter dem Reiter Berichte bereit.\n\nViele Grüße\nIhr ChronoPilot Team`,
       };
       try {
         await sgMail.send(mail);
