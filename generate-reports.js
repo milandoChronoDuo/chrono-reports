@@ -39,6 +39,16 @@ function formatSigned(ms) {
   return neg ? `-${str}` : str;
 }
 
+// DEUTSCHE MONATSNAMEN-Mapping
+const MONATE_DE = [
+  'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
+  'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'
+];
+function getGermanMonth(dateStr) {
+  const monthIdx = dayjs(dateStr).month(); // 0-basiert
+  return MONATE_DE[monthIdx] || '';
+}
+
 // 3) Template & Logo laden
 const templatePath = path.join(__dirname, 'template.html');
 if (!fs.existsSync(templatePath)) {
@@ -88,10 +98,10 @@ async function run() {
     const schema    = k.firma_slug;
     const startDate = today.subtract(1, 'month').date(dayOfMonth).format('YYYY-MM-DD');
     const endDate   = today.subtract(1, 'day').format('YYYY-MM-DD');
-    const monatName = dayjs(endDate).format('MMMM').toLowerCase();
+    const monatName = getGermanMonth(endDate); // DEUTSCH!
     const jahr      = dayjs(startDate).format('YYYY');
 
-    console.log(`\n→ [Chunk ${CHUNK_INDEX}] Kunde: ${schema} (Bericht ${monatName.charAt(0).toUpperCase()+monatName.slice(1)} ${jahr})`);
+    console.log(`\n→ [Chunk ${CHUNK_INDEX}] Kunde: ${schema} (Bericht ${monatName} ${jahr})`);
 
     // RPC: Arbeiter
     const { data: workers, error: wErr } = await supabase
@@ -141,7 +151,7 @@ async function run() {
       // Template füllen
       const html = template({
         logo:                    logoDataUri,
-        Monat:                   monatName.charAt(0).toUpperCase() + monatName.slice(1),
+        Monat:                   monatName,
         Jahr:                    jahr,
         firma_name:              k.firmenname,
         arbeiter:                { name: a.name },
@@ -182,7 +192,7 @@ async function run() {
         to: empfaenger,
         from: 'info@chrono-duo.de', // muss bei SendGrid verifiziert sein!
         subject: `ChronoPilot Berichtsversand – ${k.firmenname || k.firma_slug}`,
-        text: `Hallo ${k.kontakt_name || 'Anwender'},\n\nIhr Monatsbericht für ${monatName.charAt(0).toUpperCase()+monatName.slice(1)} ${jahr} wurde soeben bereitgestellt. Die PDFs liegen für Sie im ChronoPilot-Adminbereich unter dem Reiter Berichte bereit.\n\nViele Grüße\nIhr ChronoPilot Team`,
+        text: `Hallo ${k.kontakt_name || 'Anwender'},\n\nIhr Monatsbericht für ${monatName} ${jahr} wurde soeben bereitgestellt. Die PDFs liegen für Sie im ChronoPilot-Adminbereich unter dem Reiter Berichte bereit.\n\nViele Grüße\nIhr ChronoPilot Team`,
       };
       try {
         await sgMail.send(mail);
