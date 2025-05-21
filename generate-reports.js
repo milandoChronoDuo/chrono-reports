@@ -88,7 +88,7 @@ async function run() {
     const schema    = k.firma_slug;
     const startDate = today.subtract(1, 'month').date(dayOfMonth).format('YYYY-MM-DD');
     const endDate   = today.subtract(1, 'day').format('YYYY-MM-DD');
-    const monatName = dayjs(startDate).format('MMMM').toLowerCase();
+    const monatName = dayjs(endDate).format('MMMM').toLowerCase();
     const jahr      = dayjs(startDate).format('YYYY');
 
     console.log(`\n→ [Chunk ${CHUNK_INDEX}] Kunde: ${schema} (Bericht ${monatName.charAt(0).toUpperCase()+monatName.slice(1)} ${jahr})`);
