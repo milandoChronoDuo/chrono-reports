@@ -94,8 +94,16 @@ async function run() {
   // 4d) Pro Kunde im Chunk
   for (const k of slice) {
     const schema    = k.firma_slug;
-    const startDate = today.subtract(1, 'month').date(k.lastversand).format('YYYY-MM-DD');
-    const endDate   = today.subtract(1, 'day').format('YYYY-MM-DD');
+    // Start: lastversand-Tag des aktuellen Monats minus 1 Monat
+    const startDate = today
+      .date(k.lastversand)
+      .subtract(1, 'month')
+      .format('YYYY-MM-DD');
+    // Ende: heute minus 1 Tag
+    const endDate   = today
+      .subtract(1, 'day')
+      .format('YYYY-MM-DD');
+
     const monatName = getGermanMonth(endDate); // DEUTSCH!
     const jahr      = dayjs(startDate).format('YYYY');
 
@@ -200,7 +208,7 @@ async function run() {
       }
     }
 
-    // 4g) lastversand updaten
+    // 4g) lastversand updaten und danach PDF-Versand-Tag aktualisieren
     const { error: lvErr } = await supabase
       .schema('management')
       .rpc('set_lastversand', {
@@ -212,7 +220,6 @@ async function run() {
     } else {
       console.log(`   → lastversand für ${schema} = ${dayOfMonth}`);
 
-      // 4h) PDF-Versand-Tag erst nach komplettem Durchlauf aktualisieren
       const { error: rErr } = await supabase
         .schema('management')
         .rpc('refresh_pdf_versand_tag');
