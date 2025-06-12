@@ -1,5 +1,3 @@
-// generate-reports.js
-
 require('dotenv').config();
 const fs         = require('fs');
 const path       = require('path');
@@ -70,11 +68,11 @@ async function run() {
   const today      = dayjs();
   const dayOfMonth = today.date();
 
-  // 4a) Alle Kunden abrufen
+  // 4a) Alle Kunden abrufen (inkl. lastversand)
   const { data: allKunden, error: kErr } = await supabase
     .schema('management')
     .from('kunden')
-    .select('id, firma_slug, firmenname, kontakt_name, kontakt_email, pdf_versand_tag');
+    .select('id, firma_slug, firmenname, kontakt_name, kontakt_email, pdf_versand_tag, lastversand');
   if (kErr) throw kErr;
 
   // 4b) Nach heutigem pdf_versand_tag filtern
@@ -96,7 +94,7 @@ async function run() {
   // 4d) Pro Kunde im Chunk
   for (const k of slice) {
     const schema    = k.firma_slug;
-    const startDate = today.subtract(1, 'month').date(dayOfMonth).format('YYYY-MM-DD');
+    const startDate = today.subtract(1, 'month').date(k.lastversand).format('YYYY-MM-DD');
     const endDate   = today.subtract(1, 'day').format('YYYY-MM-DD');
     const monatName = getGermanMonth(endDate); // DEUTSCH!
     const jahr      = dayjs(startDate).format('YYYY');
@@ -190,9 +188,9 @@ async function run() {
     if (empfaenger) {
       const mail = {
         to: empfaenger,
-        from: 'info@chrono-duo.de', // muss bei SendGrid verifiziert sein!
+        from: 'info@chrono-duo.de',
         subject: `ChronoPilot Berichtsversand – ${k.firmenname || k.firma_slug}`,
-        text: `Hallo ${k.kontakt_name || 'Anwender'},\n\nIhr Monatsbericht für ${monatName} ${jahr} wurde soeben bereitgestellt. Die PDFs liegen für Sie im ChronoPilot-Adminbereich unter dem Reiter Berichte bereit.\n\nViele Grüße\nIhr ChronoPilot Team`,
+        text: `Hallo ${k.kontakt_name || 'Anwender'},\n\nIhre Monatsberichte für ${monatName} ${jahr} wurden soeben bereitgestellt. Die PDFs liegen für Sie im ChronoPilot-Adminbereich unter dem Reiter Berichte bereit.\n\nViele Grüße\nIhr ChronoPilot Team`,
       };
       try {
         await sgMail.send(mail);
@@ -213,6 +211,16 @@ async function run() {
       console.error(`   ✖ lastversand für ${schema} konnte nicht gesetzt werden:`, lvErr.message);
     } else {
       console.log(`   → lastversand für ${schema} = ${dayOfMonth}`);
+
+      // 4h) PDF-Versand-Tag erst nach komplettem Durchlauf aktualisieren
+      const { error: rErr } = await supabase
+        .schema('management')
+        .rpc('refresh_pdf_versand_tag');
+      if (rErr) {
+        console.error('   ✖ refresh_pdf_versand_tag fehlgeschlagen:', rErr.message);
+      } else {
+        console.log('   → PDF-Versand-Tag aktualisiert.');
+      }
     }
   }
 
