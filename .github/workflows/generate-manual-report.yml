@@ -27,8 +27,9 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install Deps
-        run: npm ci
+      - name: Install deps
+        run: npm install   # statt npm ci
+
 
       - name: Generate Manual Reports
         run: |
