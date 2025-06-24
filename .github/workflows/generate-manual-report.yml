@@ -4,33 +4,45 @@ on:
   workflow_dispatch:
     inputs:
       schema:
-        description: 'Kundenschema (firma_slug)'
+        description: Kundenschema (firma_slug)
         required: true
       workers:
-        description: 'Kommaseparierte UUIDs der Arbeiter'
+        description: Kommaseparierte UUIDs der Arbeiter
         required: true
       start_date:
-        description: 'Startdatum (YYYY-MM-DD)'
+        description: Startdatum (YYYY-MM-DD)
         required: true
       end_date:
-        description: 'Enddatum (YYYY-MM-DD)'
+        description: Enddatum (YYYY-MM-DD)
         required: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
+      # 1) Repository auschecken
       - uses: actions/checkout@v4
 
-      - name: Install Node
-        uses: actions/setup-node@v4
+      # 2) Node 20 bereitstellen
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
 
+      # 3) Cache für NPM (optional – beschleunigt Wiederholungs-Runs)
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key:  ${{ runner.os }}-npm-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      # 4) Abhängigkeiten installieren (ignoriert veralteten Lock-File)
       - name: Install deps
-        run: npm install   # statt npm ci
+        run: npm install --omit=dev --no-audit --no-fund
 
-
+      # 5) PDF-Generator ausführen
       - name: Generate Manual Reports
         run: |
           node generate-manual-report.js \
@@ -39,5 +51,5 @@ jobs:
             "${{ github.event.inputs.start_date }}" \
             "${{ github.event.inputs.end_date }}"
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL:             ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
