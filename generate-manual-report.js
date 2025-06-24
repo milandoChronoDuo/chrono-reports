@@ -1,3 +1,6 @@
+/* generate-manual-report.js – Rev 2
+   Manuell angeforderte Berichte mit Revisionierung */
+
 require('dotenv').config();
 const fs         = require('fs');
 const path       = require('path');
@@ -6,192 +9,154 @@ const puppeteer  = require('puppeteer');
 const dayjs      = require('dayjs');
 const { createClient } = require('@supabase/supabase-js');
 
-// 1) Supabase-Client
-const supabase = createClient(
+const sb = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// Argumente: via ENV oder CLI
-const schema     = process.env.SCHEMA      || process.argv[2];
-const workerIds  = (process.env.WORKERS    || process.argv[3] || '').split(',').filter(Boolean); // UUIDs
-const startDate  = process.env.START_DATE  || process.argv[4]; // yyyy-mm-dd
-const endDate    = process.env.END_DATE    || process.argv[5]; // yyyy-mm-dd
-
-if (!schema || !workerIds.length || !startDate || !endDate) {
-  console.error('Fehlende Argumente: schema, workers, start_date, end_date');
+// ─── Argument-Parsing ───────────────────────────────────────────────────────
+const [schema, workerArg, startDate, endDate] = process.argv.slice(2);
+if (!schema || !workerArg || !startDate || !endDate) {
+  console.error('Usage: node generate-manual-report.js <schema> <workerIdsCSV> <start> <end>');
   process.exit(1);
 }
+const workerIds = workerArg.split(',').map(s => s.trim()).filter(Boolean);
 
-// Template laden
-const templatePath = path.join(__dirname, 'template.html');
-if (!fs.existsSync(templatePath)) {
-  console.error('template.html fehlt');
-  process.exit(1);
-}
-const templateSource = fs.readFileSync(templatePath, 'utf-8');
-const template       = Handlebars.compile(templateSource);
+// ─── Template & Logo laden ─────────────────────────────────────────────────
+const template = Handlebars.compile(
+  fs.readFileSync(path.join(__dirname, 'template.html'), 'utf8')
+);
+const logoDataUri = fs.existsSync(path.join(__dirname, 'logo.png'))
+  ? 'data:image/png;base64,' + fs.readFileSync(path.join(__dirname, 'logo.png')).toString('base64')
+  : '';
 
-let logoDataUri = '';
-const logoPath = path.join(__dirname, 'logo.png');
-if (fs.existsSync(logoPath)) {
-  const buf = fs.readFileSync(logoPath);
-  logoDataUri = 'data:image/png;base64,' + buf.toString('base64');
-}
+// ─── Hilfsfunktionen (wie bisher) ──────────────────────────────────────────
+const MONATE_DE = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+const ms = i => {
+  const neg = i.startsWith('-'); const [h='0',m='0',s='0'] = i.replace(/^-/,'').split(':');
+  const msec = (Number(h)*3600+Number(m)*60+Number(s))*1000;
+  return neg ? -msec : msec;
+};
+const fmt = v => {
+  const neg = v<0; const abs=Math.abs(v); const min=Math.round(abs/60000);
+  const txt=`${String(Math.floor(min/60)).padStart(2,'0')}:${String(min%60).padStart(2,'0')}`;
+  return (neg?'-':'')+txt;
+};
 
-// DEUTSCHE MONATSNAMEN-Mapping
-const MONATE_DE = [
-  'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
-  'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'
-];
-function getGermanMonth(dateStr) {
-  const monthIdx = dayjs(dateStr).month(); // 0-basiert
-  return MONATE_DE[monthIdx] || '';
-}
-function parseIntervalToMs(interval) {
-  if (typeof interval !== 'string') return 0;
-  const neg = interval.trim().startsWith('-');
-  const [h='0', m='0', s='0'] = interval.replace(/^-/, '').split(':');
-  const totalSec = Number(h)*3600 + Number(m)*60 + Number(s);
-  const totalMin = Math.round(totalSec / 60);
-  return neg ? -totalMin * 60 * 1000 : totalMin * 60 * 1000;
-}
-function formatSigned(ms) {
-  const neg = ms < 0;
-  const absMs = Math.abs(ms);
-  const totalMin = Math.floor(absMs / 60000);
-  const hh = Math.floor(totalMin / 60);
-  const mm = totalMin % 60;
-  const str = `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
-  return neg ? `-${str}` : str;
-}
-
-// Hauptfunktion
-async function run() {
-  // Firmenname aus management.kunden
-  const { data: kunde, error: kErr } = await supabase
+// ─── Hauptablauf ───────────────────────────────────────────────────────────
+(async () => {
+  // Firmen­namen für die Kopfzeile holen
+  const { data: kunde } = await sb
     .schema('management')
     .from('kunden')
     .select('firmenname')
     .eq('firma_slug', schema)
-    .maybeSingle();
-  if (kErr || !kunde) {
-    console.error('Firmenname konnte nicht geladen werden.');
+    .single();
+  const firmaName = kunde?.firmenname || schema;
+
+  // Alle Arbeiter dieses Schemas über RPC holen
+  const { data: allWorkers, error: wErr } = await sb
+    .schema('management')
+    .rpc('get_arbeiter', { schema_name: schema });
+
+  if (wErr) {
+    console.error('RPC get_arbeiter error:', wErr.message);
     process.exit(1);
   }
-  const firma_name = kunde.firmenname;
 
-  // Arbeiterdaten laden (Name)
-  const { data: workers, error: wErr } = await supabase
-    .schema(schema)
-    .from('arbeiter')
-    .select('id, name')
-    .in('id', workerIds);
-  if (wErr || !workers?.length) {
-    console.error('Arbeiterdaten konnten nicht geladen werden.');
+  // Nur die gewünschten IDs herausfiltern
+  const workers = (allWorkers || []).filter(w => workerIds.includes(w.id));
+  if (!workers.length) {
+    console.error('Keine passenden Arbeiter gefunden – prüfe UUID & Schema.');
     process.exit(1);
   }
 
   for (const a of workers) {
-    // Zeiteinträge für Zeitraum laden
-    const { data: zeiten, error: tErr } = await supabase
-      .schema(schema)
-      .from('zeiten')
-      .select('*')
-      .eq('mitarbeiter_id', a.id)
-      .gte('datum', startDate)
-      .lte('datum', endDate)
-      .order('datum', { ascending: true });
+    // Zeit­einträge via RPC
+    const { data: zeiten, error: tErr } = await sb
+      .schema('management')
+      .rpc('get_zeiten', {
+        schema_name: schema,
+        mitarbeiter: a.id,
+        start_date:  startDate,
+        end_date:    endDate
+      });
 
-    if (tErr || !zeiten) {
-      console.error(`Zeiten für ${a.name} konnten nicht geladen werden.`);
+    if (tErr) {
+      console.error(`get_zeiten‐Fehler für ${a.name}:`, tErr.message);
+      continue;
+    }
+    if (!zeiten?.length) {
+      console.warn(`⚠️  Keine Zeiten für ${a.name} im Zeitraum ${startDate}–${endDate}`);
       continue;
     }
 
-    // Monat & Jahr aus Startdatum
-    const monatName = getGermanMonth(startDate);
-    const jahr      = dayjs(startDate).format('YYYY');
+    // Revision bestimmen
+    const monatName = MONATE_DE[dayjs(startDate).month()];
+    const jahr      = dayjs(startDate).year();
+    const safeName  = a.name.replace(/ /g,'_');
+    const prefix    = `${schema}-${safeName}-${monatName}-${jahr}-rev`;
 
-    // Nächste Revision herausfinden:
-    const safeName = a.name.replace(/ /g, '_');
-    const prefix = `${schema}-${safeName}-${monatName}-${jahr}-rev`;
-    // Liste der vorhandenen Dateien im Bucket
-    const { data: files, error: listErr } = await supabase
-      .storage
-      .from('reports')
-      .list('', { limit: 1000 });
-    let revNum = 1;
-    if (files && files.length > 0) {
-      const regex = new RegExp(`^${schema}-${safeName}-${monatName}-${jahr}-rev(\\d+)\\.pdf$`, 'i');
-      const revisions = files
-        .map(f => {
-          const m = f.name.match(regex);
-          return m ? Number(m[1]) : null;
-        })
-        .filter(Boolean);
-      if (revisions.length > 0) {
-        revNum = Math.max(...revisions) + 1;
-      }
-    }
-    const uploadName = `${schema}-${safeName}-${monatName}-${jahr}-rev${revNum}.pdf`;
+    const { data: files } = await sb.storage.from('reports').list('', { limit:1000 });
+    const rev = Math.max(
+      0,
+      ...files
+        .map(f => (f.name.match(new RegExp(`^${prefix}(\\d+)\\.pdf$`)) || [])[1])
+        .filter(Boolean)
+        .map(Number)
+    ) + 1;
 
-    // Zeilen/Summen wie gehabt
-    let gesNettoMs = 0, gesUberMs = 0;
-    const zeilenHtml = zeiten.map(z => {
-      const nettoMs = parseIntervalToMs(z.nettoarbeitszeit);
-      const uberMs  = parseIntervalToMs(z.ueberstunden);
-      const pauseMs = parseIntervalToMs(z.pausendauer);
-      gesNettoMs += nettoMs;
-      gesUberMs  += uberMs;
-      return `
-        <tr>
-          <td>${dayjs(z.datum).format('DD.MM.YYYY')}</td>
-          <td>${z.status}</td>
-          <td>${z.arbeitsbeginn ? dayjs(z.arbeitsbeginn).format('HH:mm') : ''}</td>
-          <td>${z.feierabend    ? dayjs(z.feierabend).format('HH:mm')   : ''}</td>
-          <td>${formatSigned(pauseMs)} Std.</td>
-          <td>${formatSigned(nettoMs)} Std.</td>
-          <td>${formatSigned(uberMs)} Std.</td>
-        </tr>`;
+    const uploadName = `${prefix}${rev}.pdf`;
+
+    // Summen & Zeilen
+    let netto=0, ueber=0;
+    const bodyRows = zeiten.map(z=>{
+      const n=ms(z.nettoarbeitszeit||'0'); netto+=n;
+      const u=ms(z.ueberstunden||'0');     ueber+=u;
+      const p=ms(z.pausendauer||'0');
+      return `<tr>
+        <td>${dayjs(z.datum).format('DD.MM.YYYY')}</td>
+        <td>${z.status}</td>
+        <td>${z.arbeitsbeginn?dayjs(z.arbeitsbeginn).format('HH:mm'):''}</td>
+        <td>${z.feierabend?dayjs(z.feierabend).format('HH:mm'):''}</td>
+        <td>${fmt(p)} Std.</td>
+        <td>${fmt(n)} Std.</td>
+        <td>${fmt(u)} Std.</td>
+      </tr>`;
     }).join('');
 
-    // Template füllen
+    // HTML → PDF
     const html = template({
-      logo:                    logoDataUri,
-      Monat:                   monatName,
-      Jahr:                    jahr,
-      firma_name:              firma_name,
-      arbeiter:                { name: a.name },
-      zeilen:                  zeilenHtml,
-      gesamt_nettoarbeitszeit: formatSigned(gesNettoMs) + ' Std.',
-      gesamt_ueberstunden:     formatSigned(gesUberMs)  + ' Std.',
-      erstellungsdatum:        dayjs().format('DD.MM.YYYY')
+      logo: logoDataUri,
+      Monat: monatName,
+      Jahr:  jahr,
+      firma_name: firmaName,
+      arbeiter: { name: a.name },
+      zeilen: bodyRows,
+      gesamt_nettoarbeitszeit: fmt(netto)+' Std.',
+      gesamt_ueberstunden:     fmt(ueber)+' Std.',
+      erstellungsdatum: dayjs().format('DD.MM.YYYY')
     });
 
-    // PDF generieren
     const browser = await puppeteer.launch({ args:['--no-sandbox'] });
     const page    = await browser.newPage();
     await page.setContent(html, { waitUntil:'networkidle0' });
-    const pdfBuffer = await page.pdf({ format:'A4', printBackground:true });
+    const pdfBuf  = await page.pdf({ format:'A4', printBackground:true });
     await browser.close();
 
-    // Upload mit Revision!
-    const { error: upErr } = await supabase
+    // Upload
+    const { error: upErr } = await sb
       .storage
       .from('reports')
-      .upload(uploadName, pdfBuffer, {
-        contentType: 'application/pdf',
-        upsert: true
-      });
+      .upload(uploadName, pdfBuf, { contentType:'application/pdf', upsert:true });
+
     if (upErr) {
-      console.error(`     ✖ Upload ${uploadName}:`, upErr.message);
+      console.error(`❌ Upload fehlgeschlagen (${uploadName}):`, upErr.message);
     } else {
-      console.log(`     ✔ Hochgeladen: ${uploadName}`);
+      console.log(`✔ Bericht hochgeladen: ${uploadName}`);
     }
   }
-}
-
-run().catch(err => {
-  console.error('❌ Fehler:', err.message);
+})().catch(err => {
+  console.error('Script error:', err);
   process.exit(1);
 });
